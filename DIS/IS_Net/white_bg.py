@@ -5,7 +5,6 @@ from torch.autograd import Variable
 from torchvision import transforms
 import torch.nn.functional as F
 import os
-
 import requests
 import matplotlib.pyplot as plt
 from io import BytesIO
@@ -13,7 +12,7 @@ from io import BytesIO
 # project imports
 from .data_loader_cache import normalize, im_reader, im_preprocess
 from .models import *
-
+import boto3
 class GOSNormalize(object):
     '''
     Normalize the Image using torch.transforms
@@ -130,7 +129,7 @@ def define_parameters():
   # hypar["model_path"] ="./saved_models" ## load trained weights from this path
 
   hypar["restore_model"] = "isnet.pth" ## name of the to-be-loaded weights
-  hypar["restore_model"] = "gpu_itr_25800_traLoss_0.0751_traTarLoss_0.0052_valLoss_0.0579_valTarLoss_0.005_maxF1_0.999_mae_0.0011_time_0.058883.pth" ## name of the to-be-loaded weights
+  hypar["restore_model"] = "DIS_model.pth" ## name of the to-be-loaded weights
   # hypar["restore_model"] = "gpu_itr_5600_traLoss_0.0885_traTarLoss_0.0058_valLoss_1.4584_valTarLoss_0.217_maxF1_0.9709_mae_0.029_time_0.051693.pth" ## name of the to-be-loaded weights
 
   hypar["interm_sup"] = False ## indicate if activate intermediate feature supervision
@@ -148,10 +147,51 @@ def define_parameters():
   hypar["model"] = ISNetDIS()
   return hypar
 
+def download_model_weight(local_file_path, s3_file_path):
+    # Check if the file exists
+    if not os.path.exists(local_file_path):
+        BUCKET_NAME="ds-kas-bucket"
+        
+        download_file(BUCKET_NAME, s3_file_path, local_file_path)
+    else:
+        print(f"File {local_file_path} already exists.")
+
+
+
+def get_aws_client(service,access_key,secret_key,region):
+    s3_client = boto3.client(service_name = service,
+                            aws_access_key_id = access_key,
+                            aws_secret_access_key = secret_key,
+                            region_name = region)
+    return s3_client
+
+
+
+def download_file(bucket_name, s3_file_path, local_file_path):
+
+    AWS_SERVICE="s3"
+    AWS_ACCESS_TOKEN="AKIA4P2YCRVLAA3JFCE6"
+    AWS_SECRET_TOKEN="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"
+    AWS_REGION="us-east-1"
+    BUCKET_NAME="ds-kas-bucket"
+
+    s3_client = get_aws_client(AWS_SERVICE,
+                        AWS_ACCESS_TOKEN,
+                        AWS_SECRET_TOKEN,
+                        AWS_REGION)
+    
+    s3_client.download_file(bucket_name, s3_file_path, local_file_path)
+
+
+
 def white_bg_generate(input_path,output_path):
+  script_dir = os.path.dirname(os.path.abspath(__file__))
+  local_path = os.path.join(script_dir, "saved_models/DIS_model.pth") 
+  s3_model_path = "finetune_models/background_removal/finetune_model_v1.pth"
+  download_model_weight(local_path,s3_model_path)
   device = 'cuda' if torch.cuda.is_available() else 'cpu'
   hypar = define_parameters()
   net = build_model(hypar, device)
   mask_blackwhite,original = predictmask(input_path,net,hypar,device)
-  final = mask_to_img(mask_blackwhite,original)
-  plt.imsave(output_path,final)
+#   final = mask_to_img(mask_blackwhite,original)
+  plt.imsave(output_path,mask_blackwhite) ## Currently only wants to return mask
